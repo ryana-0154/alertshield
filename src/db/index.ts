@@ -175,6 +175,34 @@ export async function saveResult(repoId: number, result: DetectionResult): Promi
       );
     }
 
+    for (const item of result.waste) {
+      await client.query(
+        `insert into waste_findings (
+           repo_id, kind, workflow, job, occurrences, wasted_seconds,
+           runner, runner_labels, runner_class, detail, last_seen
+         ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         on conflict on constraint waste_findings_unique do update set
+           occurrences    = excluded.occurrences,
+           wasted_seconds = excluded.wasted_seconds,
+           detail         = excluded.detail,
+           last_seen      = excluded.last_seen,
+           updated_at     = now()`,
+        [
+          repoId,
+          item.kind,
+          item.workflow,
+          item.job,
+          item.occurrences,
+          item.wastedSeconds,
+          item.runner,
+          item.runnerLabels,
+          priceRunner(item.runnerLabels).class,
+          item.detail,
+          item.lastSeen,
+        ],
+      );
+    }
+
     await client.query("update repos set last_ingested_at = now() where id = $1", [repoId]);
     await client.query("commit");
   } catch (error) {
@@ -296,5 +324,44 @@ export async function loadRepos(): Promise<RepoSummary[]> {
     confirmed: row.confirmed,
     suspected: row.suspected,
     wastedSeconds: row.wasted_seconds,
+  }));
+}
+
+export interface StoredWaste {
+  repo: string;
+  kind: string;
+  workflow: string;
+  job: string;
+  occurrences: number;
+  wastedSeconds: number;
+  runner: string;
+  runnerClass: string;
+  detail: string;
+  lastSeen: string;
+}
+
+/** Non-flake waste, ranked. Uses the same noise floor as confirmed findings. */
+export async function loadWaste(minWastedSeconds = 60): Promise<StoredWaste[]> {
+  const { rows } = await getPool().query(
+    `select r.full_name as repo, w.kind, w.workflow, w.job, w.occurrences,
+            w.wasted_seconds, w.runner, w.runner_class, w.detail, w.last_seen
+       from waste_findings w
+       join repos r on r.id = w.repo_id
+      where w.wasted_seconds >= $1
+      order by w.wasted_seconds desc
+      limit 100`,
+    [minWastedSeconds],
+  );
+  return rows.map((row) => ({
+    repo: row.repo,
+    kind: row.kind,
+    workflow: row.workflow,
+    job: row.job,
+    occurrences: row.occurrences,
+    wastedSeconds: row.wasted_seconds,
+    runner: row.runner,
+    runnerClass: row.runner_class,
+    detail: row.detail,
+    lastSeen: new Date(row.last_seen).toISOString(),
   }));
 }

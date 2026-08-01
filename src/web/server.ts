@@ -15,7 +15,7 @@
 
 import { createServer, type ServerResponse } from "node:http";
 
-import { closePool, loadGroups, loadRepos, loadSuspected, migrate } from "../db/index.ts";
+import { closePool, loadGroups, loadRepos, loadSuspected, loadWaste, migrate } from "../db/index.ts";
 import { priceRunner } from "../detect/index.ts";
 
 const PORT = Number(process.env["PORT"] ?? 3000);
@@ -129,17 +129,21 @@ interface PageData {
   days: number | null;
   groups: Awaited<ReturnType<typeof loadGroups>>;
   suspected: Awaited<ReturnType<typeof loadSuspected>>;
+  waste: Awaited<ReturnType<typeof loadWaste>>;
   repos: Awaited<ReturnType<typeof loadRepos>>;
 }
 
-function renderPage({ days, groups, suspected, repos }: PageData): string {
+function renderPage({ days, groups, suspected, waste, repos }: PageData): string {
   const wastedSeconds = groups.reduce((n, g) => n + g.wastedSeconds, 0);
   const usd = groups.reduce((n, g) => n + usdFor(g.runner, g.runnerClass, g.wastedSeconds), 0);
   const occurrences = groups.reduce((n, g) => n + g.occurrences, 0);
   const window = days ? `the last ${days} days` : "all recorded history";
 
+  const wasteSeconds = waste.reduce((n, w) => n + w.wastedSeconds, 0);
+  const provenSeconds = wastedSeconds + wasteSeconds;
+
   // ADR-0005: be explicit when the picture is mostly unproven.
-  const mostlyUnproven = groups.length === 0 && suspected.length > 0;
+  const mostlyUnproven = groups.length === 0 && waste.length === 0 && suspected.length > 0;
 
   const tab = (label: string, value: number | null) => {
     const href = value === null ? "/" : `/?days=${value}`;
@@ -187,6 +191,41 @@ function renderPage({ days, groups, suspected, repos }: PageData): string {
           })
           .join("");
 
+  const wasteSection =
+    waste.length === 0
+      ? ""
+      : `
+    <h2>Other wasted time</h2>
+    <p>Measured, not inferred. Cancelled work was thrown away; broken windows are jobs nobody is acting on.</p>
+    ${waste
+      .slice(0, 20)
+      .map((w) => {
+        const kind = w.kind === "cancelled" ? "thrown away" : "broken window";
+        const cost =
+          w.runnerClass === "self-hosted"
+            ? "self-hosted"
+            : w.runnerClass === "unknown"
+              ? "unpriced runner"
+              : `~$${((w.wastedSeconds / 60) * priceRunner([w.runner]).usdPerMinute).toFixed(2)}`;
+        return `
+      <div class="row">
+        <div class="body">
+          <div class="title">${escapeHtml(w.job)}
+            <span class="repo">— ${escapeHtml(w.repo)} · ${escapeHtml(w.workflow)}</span>
+          </div>
+          <div class="meta">
+            <span class="tag proven">${kind}</span>
+            <span>${escapeHtml(w.detail)}</span>
+          </div>
+        </div>
+        <div class="cost">
+          <strong>${minutes(w.wastedSeconds)}</strong>
+          <span>${cost}</span>
+        </div>
+      </div>`;
+      })
+      .join("")}`;
+
   const suspectedSection =
     suspected.length === 0
       ? ""
@@ -224,12 +263,13 @@ function renderPage({ days, groups, suspected, repos }: PageData): string {
   </header>
 
   <div class="headline">
-    ${groups.length > 0
-      ? `<em>${minutes(wastedSeconds)}</em> wasted across ${occurrences} confirmed flakes`
+    ${provenSeconds > 0
+      ? `<em>${minutes(provenSeconds)}</em> of provably wasted CI time`
       : `<em>${suspected.length}</em> suspected flaky ${suspected.length === 1 ? "job" : "jobs"}`}
   </div>
   <div class="sub">
-    in ${escapeHtml(window)}${usd > 0 ? ` · about $${usd.toFixed(2)} in runner cost` : ""}
+    in ${escapeHtml(window)} · ${occurrences} confirmed ${occurrences === 1 ? "flake" : "flakes"},
+    ${waste.length} other waste ${waste.length === 1 ? "finding" : "findings"}${usd > 0 ? ` · about $${usd.toFixed(2)} in flake cost` : ""}
   </div>
 
   ${mostlyUnproven
@@ -247,6 +287,7 @@ function renderPage({ days, groups, suspected, repos }: PageData): string {
   <h2>Confirmed</h2>
   <p>The same commit both passed and failed. Not an estimate.</p>
   ${confirmedSection}
+  ${wasteSection}
   ${suspectedSection}
 
   <footer>
@@ -272,14 +313,15 @@ createServer((req, res: ServerResponse) => {
         return void res.end("ok");
       }
 
-      const [groups, suspected, repos] = await Promise.all([
+      const [groups, suspected, waste, repos] = await Promise.all([
         loadGroups(days),
         loadSuspected(),
+        loadWaste(),
         loadRepos(),
       ]);
 
       if (url.pathname === "/api/report") {
-        const body = JSON.stringify({ days, groups, suspected, repos }, null, 2);
+        const body = JSON.stringify({ days, groups, suspected, waste, repos }, null, 2);
         res.writeHead(200, { "content-type": "application/json" });
         return void res.end(body);
       }
@@ -289,7 +331,7 @@ createServer((req, res: ServerResponse) => {
         return void res.end("Not found");
       }
 
-      const html = renderPage({ days, groups, suspected, repos });
+      const html = renderPage({ days, groups, suspected, waste, repos });
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       res.end(html);
     } catch (error) {

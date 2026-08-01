@@ -9,6 +9,7 @@
 
 import { GitHubClient, type Job, type WorkflowRun } from "../github/client.ts";
 import { CauseClassifier, causeFromFailingStep, type CauseVerdict } from "./cause.ts";
+import { findWaste, type WasteFinding } from "./waste.ts";
 
 /**
  * GitHub's published per-minute rates, matched by label prefix.
@@ -82,6 +83,8 @@ export interface DetectionResult {
   repo: string;
   confirmed: ConfirmedFlake[];
   suspected: SuspectedFlake[];
+  /** Provably wasted time that is not a flake (ADR-0006). */
+  waste: WasteFinding[];
   runsAnalysed: number;
   /** True if the repo had ≥1 run in the trailing 30 days (CONTEXT.md: Active Repo). */
   activeRepo: boolean;
@@ -253,28 +256,42 @@ export async function detectFlakes(
     }
   });
 
-  // --- Suspected: intermittent single-attempt failures ---------------------
-  const singleAttemptFailures = runs.filter((r) => r.run_attempt === 1 && r.conclusion === "failure");
-  const failureCounts = new Map<string, { workflow: string; failures: number }>();
+  // --- One pass over every unsuccessful run --------------------------------
+  //
+  // Feeds both the Suspected tier and the waste analysis (ADR-0006). Fetching
+  // jobs is the expensive part, so it happens once and both consumers read the
+  // same map. Successful runs are never fetched: nothing needs them, and they
+  // are the overwhelming majority.
+  const unsuccessful = runs.filter(
+    (r) => r.conclusion === "failure" || r.conclusion === "cancelled",
+  );
+  const jobsByRun = new Map<number, Job[]>();
 
-  await pooled(singleAttemptFailures, options.concurrency ?? 8, async (run: WorkflowRun) => {
-    const jobs = await client.listJobsForRun(owner, repo, run.id);
-    for (const job of jobs) {
+  await pooled(unsuccessful, options.concurrency ?? 8, async (run: WorkflowRun) => {
+    jobsByRun.set(run.id, await client.listJobsForRun(owner, repo, run.id));
+  });
+
+  const waste = findWaste({ repo: fullName, runs, jobsByRun });
+
+  const failureCounts = new Map<string, { workflow: string; job: string; failures: number }>();
+  for (const run of unsuccessful) {
+    if (run.run_attempt !== 1 || run.conclusion !== "failure") continue;
+    for (const job of jobsByRun.get(run.id) ?? []) {
       if (job.conclusion !== "failure") continue;
-      const key = `${run.name} ${job.name}`;
-      const entry = failureCounts.get(key) ?? { workflow: run.name, failures: 0 };
+      const key = `${run.name}\u0000${job.name}`;
+      const entry = failureCounts.get(key) ?? { workflow: run.name, job: job.name, failures: 0 };
       entry.failures += 1;
       failureCounts.set(key, entry);
     }
-  });
+  }
 
   const runsPerWorkflow = new Map<string, number>();
   for (const run of runs) runsPerWorkflow.set(run.name, (runsPerWorkflow.get(run.name) ?? 0) + 1);
 
-  const confirmedJobKeys = new Set(confirmed.map((f) => `${f.workflow} ${f.job}`));
+  const confirmedJobKeys = new Set(confirmed.map((f) => `${f.workflow}\u0000${f.job}`));
   const suspected: SuspectedFlake[] = [];
 
-  for (const [key, { workflow, failures }] of failureCounts) {
+  for (const [key, { workflow, job, failures }] of failureCounts) {
     if (confirmedJobKeys.has(key)) continue; // already proven; don't double-report
     const totalRuns = runsPerWorkflow.get(workflow) ?? 0;
     const failureRate = totalRuns > 0 ? failures / totalRuns : 0;
@@ -283,7 +300,7 @@ export async function detectFlakes(
     suspected.push({
       repo: fullName,
       workflow,
-      job: key.split(" ")[1]!,
+      job,
       failures,
       totalRuns,
       failureRate: Number(failureRate.toFixed(4)),
@@ -316,6 +333,7 @@ export async function detectFlakes(
     repo: fullName,
     confirmed,
     suspected,
+    waste,
     runsAnalysed: runs.length,
     activeRepo: lastRun !== null && Date.parse(lastRun) > now.getTime() - 30 * 86_400_000,
     lastRunAt: lastRun,

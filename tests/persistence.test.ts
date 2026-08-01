@@ -55,6 +55,7 @@ const result = (confirmed: ConfirmedFlake[], suspected: DetectionResult["suspect
   repo: TEST_REPO,
   confirmed,
   suspected,
+  waste: [],
   runsAnalysed: 100,
   activeRepo: true,
   lastRunAt: new Date().toISOString(),

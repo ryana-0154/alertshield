@@ -301,6 +301,7 @@ describe("false positives found by surveying live repos", () => {
           repo: "x/y",
           confirmed: [noise],
           suspected: [],
+          waste: [],
           runsAnalysed: 10,
           activeRepo: true,
           lastRunAt: null,

@@ -1,8 +1,8 @@
 # AlertShield
 
-**Finds the flaky CI failures quietly burning your GitHub Actions minutes — and proves what they cost.**
+**Shows where your GitHub Actions minutes go — and proves which of them were wasted.**
 
-> ⚠️ **Status: pre-implementation.** No application code yet. The plan below supersedes the broader product brief in [`OVERVIEW.md`](./OVERVIEW.md); where the two disagree, this file and [`docs/adr/`](./docs/adr/) win.
+> ⚠️ **Status: working analyzer, not yet a product.** The engine, storage and report page run against live GitHub. There is no installable GitHub App, no billing, and nothing deployed. This file supersedes the broader brief in [`OVERVIEW.md`](./OVERVIEW.md); where they disagree, this and [`docs/adr/`](./docs/adr/) win.
 >
 > 📛 **The name is provisional.** "AlertShield" comes from an alerting product that is not being built. A rename is expected before public launch.
 
@@ -12,13 +12,26 @@
 
 CI fails. Someone hits rerun. It passes. Nobody investigates, and the same test fails again next week.
 
-GitHub gives you no way to see this. The Actions UI shows you **one run at a time** — per-job durations, pass or fail, right there for free. What it never shows is the pattern *across* runs: which jobs fail and then pass at the same commit, how often, and how many runner-minutes that has cost you this month.
+GitHub gives you no way to see this. The Actions UI shows you **one run at a time** — per-job durations, pass or fail, right there for free. What it never shows is the pattern *across* runs: which jobs waste time repeatedly, how often, and what that has cost you this month.
 
 That gap is the whole product. Everything else follows from it.
 
 ## What it does
 
-1. **Proves flakiness rather than guessing.** A *Confirmed Flake* is a job seen both passing and failing at the same commit SHA, with no code change between. Weaker patterns are reported separately as *Suspected*, clearly labelled. We would rather show you less than show you something wrong — see [ADR-0004](./docs/adr/0004-precision-over-recall-in-flake-classification.md).
+Four categories of **provably** wasted CI time, ranked by minutes:
+
+| | |
+|---|---|
+| **Confirmed flakes** | The same commit both passed and failed |
+| **Cancelled work** | Runs superseded mid-flight; the compute was discarded |
+| **Broken windows** | Jobs red for many runs in a row that nobody acts on |
+| **Suspected** | Intermittent failures with no proof — shown separately, never as fact |
+
+Measured across 13 large public repos, flake detection alone found something in 7; adding the waste categories raised that to 11. The waste findings are also far larger — the biggest confirmed flake cost 34 minutes, while one broken window in `denoland/deno` cost 517.
+
+### How
+
+1. **Proves rather than guesses.** A *Confirmed Flake* is a job seen both passing and failing at the same commit SHA, with no code change between. Weaker patterns are reported separately as *Suspected*, clearly labelled. We would rather show you less than show you something wrong — see [ADR-0004](./docs/adr/0004-precision-over-recall-in-flake-classification.md).
 2. **Says what broke.** Job logs are parsed to attribute each flake to **Infrastructure** (dead runner, network, registry, cache) or **Test Suite** (nondeterminism in your tests) — different problems with different owners.
 3. **Never stores your logs.** Logs are streamed, classified in memory, and discarded. Only structured findings are persisted. This is an architectural commitment, not a policy page — see [ADR-0003](./docs/adr/0003-logs-parsed-in-memory-never-persisted.md).
 4. **Counts the cost honestly.** Findings rank by **wasted minutes** — runner time consumed by attempts that failed to a confirmed flake, measured from job timestamps rather than estimated. Dollar figures are derived from published runner rates, with an override for self-hosted. No invented "engineering hours lost" multipliers.
@@ -32,7 +45,7 @@ Deliberately narrow, and staying that way until it works.
 | | |
 |---|---|
 | **CI provider** | GitHub Actions only |
-| **Granularity** | Job and step level; individual tests when JUnit artifacts already exist |
+| **Granularity** | Job and step level; individual tests only where JUnit artifacts already exist |
 | **Delivery** | Web report first, Slack digest to follow |
 | **Stack** | One TypeScript app, PostgreSQL, one worker process |
 
@@ -56,8 +69,7 @@ This validated the algorithm against real, messy data — and surfaced the findi
 - [ ] Slack digest — the retention mechanism a dashboard alone won't provide
 
 **3 — Retention & depth**
-- [ ] Slack digest
-- [ ] Test-level detection via existing JUnit artifacts
+- [ ] Test-level detection via existing JUnit artifacts — only ~16% of repos publish them, so this is depth for a minority
 - [ ] Trend detection — jobs degrading over time
 
 ## Pricing
@@ -90,8 +102,8 @@ Develop against synthetic data instead of live GitHub:
 ```bash
 pnpm fixtures && pnpm mock-github &
 GITHUB_API_BASE_URL=http://localhost:8787 pnpm analyze
-pnpm test                                       # 23 tests, no DB needed
-DATABASE_URL=… pnpm test                        # 30, including persistence
+pnpm test                                       # 31 tests, no DB needed
+DATABASE_URL=… pnpm test                        # 38, including persistence
 ```
 
 ## Repo layout
@@ -104,10 +116,13 @@ DATABASE_URL=… pnpm test                        # 30, including persistence
 ├── CLAUDE.md              # Project instructions for Claude Code
 ├── src/
 │   ├── github/            # API client: pagination, attempts, log streaming
-│   ├── detect/            # Flake detection and cause attribution
-│   └── report.ts          # Ranking and rendering
+│   ├── detect/            # Flake detection, cause attribution, waste analysis
+│   ├── db/                # Schema, migrations, persistence
+│   ├── web/               # Report page
+│   ├── ingest.ts          # Analyse and store
+│   └── report.ts          # Ranking and terminal rendering
 ├── tests/                 # Asserted against fixture ground truth
-├── tools/                 # Local test harness (fixtures + mock API)
+├── tools/                 # Test harness (fixtures + mock API) and surveys
 └── docs/
     ├── adr/               # Architectural decisions and why
     └── agents/            # Agent tooling configuration

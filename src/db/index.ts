@@ -154,6 +154,14 @@ export async function saveResult(repoId: number, result: DetectionResult): Promi
       );
     }
 
+    // Waste and suspected findings describe the CURRENT state of a window, not
+    // events. Upserting alone would leave stale rows behind forever — a broken
+    // window that got fixed, or a flake that stopped, would linger in the
+    // report. Replace them for this repo instead. Confirmed flakes are keyed to
+    // a specific run and job, so they are genuinely historical and stay.
+    await client.query("delete from waste_findings where repo_id = $1", [repoId]);
+    await client.query("delete from suspected_flakes where repo_id = $1", [repoId]);
+
     for (const suspected of result.suspected) {
       await client.query(
         `insert into suspected_flakes (repo_id, workflow, job, failures, total_runs, failure_rate, reason)

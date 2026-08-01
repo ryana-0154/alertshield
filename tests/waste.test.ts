@@ -123,6 +123,55 @@ describe("broken windows", () => {
     assert.deepEqual(findings.filter((f) => f.kind === "broken-window"), []);
   });
 
+  it("resets the streak on a successful run whose jobs were never fetched", () => {
+    // The bug this exists to prevent: jobs are only fetched for unsuccessful
+    // runs, so a green run in between two failures carries no job data. If the
+    // streak survives that gap, "6 consecutive failures" silently becomes
+    // "6 failures at some point", which is a completely different claim.
+    //
+    // Found in production data: opencv/opencv was reported as 60 consecutive
+    // failures when the job actually passed and failed alternately across
+    // unrelated PR branches.
+    const runs: WorkflowRun[] = [];
+    const jobs: Record<number, Job[]> = {};
+    for (let i = 0; i < 12; i += 1) {
+      const started = new Date(Date.parse("2026-07-01T10:00:00.000Z") + i * 3_600_000).toISOString();
+      const green = i % 2 === 1; // every other run passes
+      runs.push(run(i + 1, green ? "success" : "failure", started));
+      // Deliberately provide NO job data for successful runs, mirroring the
+      // real ingest, which never fetches them.
+      if (!green) {
+        jobs[i + 1] = [job({ run_id: i + 1, conclusion: "failure", name: "gate", started_at: started })];
+      }
+    }
+
+    const findings = findWaste(input(runs, jobs));
+    assert.deepEqual(
+      findings.filter((f) => f.kind === "broken-window"),
+      [],
+      "alternating pass/fail is not a broken window, however many failures there are",
+    );
+  });
+
+  it("counts only the longest streak's time, not every failure ever", () => {
+    const runs: WorkflowRun[] = [];
+    const jobs: Record<number, Job[]> = {};
+    // 6 failures, one success, then 2 more failures. Best streak is 6.
+    const pattern = [false, false, false, false, false, false, true, false, false];
+    pattern.forEach((green, i) => {
+      const started = new Date(Date.parse("2026-07-01T10:00:00.000Z") + i * 3_600_000).toISOString();
+      runs.push(run(i + 1, green ? "success" : "failure", started));
+      if (!green) {
+        jobs[i + 1] = [job({ run_id: i + 1, conclusion: "failure", name: "gate", started_at: started })];
+      }
+    });
+
+    const broken = findWaste(input(runs, jobs)).find((f) => f.kind === "broken-window");
+    assert.ok(broken);
+    assert.equal(broken.occurrences, 6, "streak is 6, not the 8 total failures");
+    assert.equal(broken.wastedSeconds, 6 * 300, "time should cover the streak only");
+  });
+
   it("says nothing about runs it never inspected", () => {
     // Successful runs are not fetched. Absence of job data must not be read as
     // absence of failure, or streaks would be computed from a partial picture.

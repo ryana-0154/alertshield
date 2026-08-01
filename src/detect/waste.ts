@@ -97,25 +97,62 @@ function brokenWindows({ repo, runs, jobsByRun }: WasteInput): WasteFinding[] {
 
   const streaks = new Map<
     string,
-    { current: number; best: number; seconds: number; runner: string; labels: string[]; last: string }
+    {
+      current: number;
+      currentSeconds: number;
+      best: number;
+      seconds: number;
+      runner: string;
+      labels: string[];
+      last: string;
+    }
   >();
 
   for (const run of ordered) {
+    // A successful RUN means every job in it passed. We never fetch jobs for
+    // successful runs, so without this the streak would survive across them and
+    // "consecutive failures" would silently degrade into "failures in total" —
+    // which is a completely different, and far weaker, claim.
+    if (run.conclusion === "success") {
+      for (const [key, entry] of streaks) {
+        if (key.startsWith(`${run.name}|`)) {
+          entry.current = 0;
+          entry.currentSeconds = 0;
+        }
+      }
+      continue;
+    }
+
     const jobs = jobsByRun.get(run.id);
-    if (!jobs) continue; // not inspected — say nothing rather than guess
+    if (!jobs) continue; // not inspected and not known-green — say nothing
+
     for (const job of jobs) {
       const key = `${run.name}|${job.name}`;
       const entry =
         streaks.get(key) ??
-        { current: 0, best: 0, seconds: 0, runner: job.labels?.[0] ?? "unknown", labels: job.labels ?? [], last: job.started_at };
+        {
+          current: 0,
+          currentSeconds: 0,
+          best: 0,
+          seconds: 0,
+          runner: job.labels?.[0] ?? "unknown",
+          labels: job.labels ?? [],
+          last: job.started_at,
+        };
 
       if (job.conclusion === "failure") {
         entry.current += 1;
-        entry.best = Math.max(entry.best, entry.current);
-        entry.seconds += durationSeconds(job);
-        entry.last = job.started_at;
+        entry.currentSeconds += durationSeconds(job);
+        if (entry.current > entry.best) {
+          // Report the time burned by the longest streak, not by every failure
+          // this job ever had — the claim is about the streak.
+          entry.best = entry.current;
+          entry.seconds = entry.currentSeconds;
+          entry.last = job.started_at;
+        }
       } else if (job.conclusion === "success") {
         entry.current = 0;
+        entry.currentSeconds = 0;
       }
       streaks.set(key, entry);
     }

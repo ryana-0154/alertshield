@@ -16,8 +16,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { GitHubClient } from "../src/github/client.ts";
-import { detectFlakes, type DetectionResult } from "../src/detect/index.ts";
-import { redact } from "../src/detect/cause.ts";
+import { detectFlakes, priceRunner, type DetectionResult } from "../src/detect/index.ts";
+import { CauseClassifier, causeFromFailingStep, redact } from "../src/detect/cause.ts";
 import { buildReport } from "../src/report.ts";
 import { LOG_CANARIES } from "../tools/fixtures/logs.ts";
 
@@ -240,5 +240,75 @@ describe("logs are never persisted (ADR-0003)", () => {
     assert.ok(!redact("Bearer ghp_abcdefghijklmnop1234").includes("ghp_"));
     assert.ok(!redact("mailto: someone@example.com").includes("someone@example.com"));
     assert.ok(!redact("GET https://internal.corp/secrets/x").includes("internal.corp"));
+  });
+});
+
+describe("false positives found by surveying live repos", () => {
+  it("does not read a filename containing 'assertionerror' as a failure", () => {
+    // deno logs this on a PASSING test. The error word is part of the filename.
+    const classifier = new CauseClassifier();
+    classifier.feed("test node_compat::parallel::test-http-pipeline-assertionerror-finish.js ... ok (307ms)");
+    assert.equal(classifier.verdict(), null);
+  });
+
+  it("ignores ANSI-coloured success lines", () => {
+    const classifier = new CauseClassifier();
+    classifier.feed("test foo::bar ... \x1b[0m\x1b[1m\x1b[32mok\x1b[0m \x1b[38;5;245m(12ms)\x1b[0m");
+    assert.equal(classifier.verdict(), null);
+  });
+
+  it("attributes mid-name install steps to infrastructure", () => {
+    // deno's "Pre-install rustup 1.28.2" was blamed on the test suite because
+    // the old heuristic only matched at the start of the step name.
+    assert.equal(causeFromFailingStep("Pre-install rustup 1.28.2")?.cause, "infrastructure");
+    assert.equal(causeFromFailingStep("Restore cargo cache")?.cause, "infrastructure");
+    assert.equal(causeFromFailingStep("Run tests")?.cause, "test-suite");
+  });
+
+  it("prices runner variants by prefix rather than exact label", () => {
+    assert.equal(priceRunner(["windows-2022"]).class, "hosted");
+    assert.equal(priceRunner(["ubuntu-slim"]).class, "hosted");
+    assert.equal(priceRunner(["macos-14-large"]).usdPerMinute, 0.08);
+  });
+
+  it("separates 'self-hosted, genuinely free' from 'runner we cannot price'", () => {
+    assert.equal(priceRunner(["self-hosted", "linux"]).class, "self-hosted");
+    assert.equal(priceRunner(["some-custom-pool"]).class, "unknown");
+  });
+
+  it("suppresses zero-duration gate jobs", () => {
+    // PR-title linters and `ci status` aggregators flip outcome at the same SHA
+    // for reasons unrelated to code, and waste no runner time.
+    const noise = {
+      repo: "x/y",
+      workflow: "pr",
+      job: "lint title",
+      headSha: "abc",
+      runId: 1,
+      jobId: 1,
+      runner: "ubuntu-latest",
+      runnerLabels: ["ubuntu-latest"],
+      evidence: "same-sha-runs" as const,
+      failedAttempts: 1,
+      wastedSeconds: 3,
+      occurredAt: "2026-01-01T00:00:00.000Z",
+      failingStep: "Validate PR title",
+      cause: null,
+    };
+    const report = buildReport(
+      [
+        {
+          repo: "x/y",
+          confirmed: [noise],
+          suspected: [],
+          runsAnalysed: 10,
+          activeRepo: true,
+          lastRunAt: null,
+        },
+      ],
+      new Date("2026-01-02T00:00:00.000Z"),
+    );
+    assert.equal(report.groups.length, 0);
+    assert.equal(report.totals.suppressedAsNoise, 1);
   });
 });

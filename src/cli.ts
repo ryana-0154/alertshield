@@ -20,15 +20,19 @@ interface Args {
   days: number | null;
   json: boolean;
   skipLogs: boolean;
+  maxRuns: number;
 }
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { repos: [], days: null, json: false, skipLogs: false };
+  // Default cap keeps a single repo to ~5 requests. Large repos report 40,000
+  // runs; uncapped pagination burns the hourly rate limit on one repository.
+  const args: Args = { repos: [], days: null, json: false, skipLogs: false, maxRuns: 500 };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]!;
     if (arg === "--json") args.json = true;
     else if (arg === "--no-logs") args.skipLogs = true;
     else if (arg === "--days") args.days = Number(argv[++i]);
+    else if (arg === "--max-runs") args.maxRuns = Number(argv[++i]);
     else if (!arg.startsWith("-")) args.repos.push(arg);
   }
   return args;
@@ -61,7 +65,12 @@ async function main(): Promise<void> {
   for (const fullName of repos) {
     const [owner, repo] = fullName.split("/");
     if (!owner || !repo) throw new Error(`Expected owner/repo, got "${fullName}"`);
-    const result = await detectFlakes(client, owner, repo, { since, skipLogs: args.skipLogs, now });
+    const result = await detectFlakes(client, owner, repo, {
+      since,
+      skipLogs: args.skipLogs,
+      maxRuns: args.maxRuns,
+      now,
+    });
     results.push(result);
     if (!args.json) {
       console.error(

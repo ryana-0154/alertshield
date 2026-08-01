@@ -45,10 +45,22 @@ const SIGNATURES: Signature[] = [
   // --- test suite ---------------------------------------------------------
   { id: "jest-assertion", cause: "test-suite", confidence: "high", test: /expect\(received\)|Expected:.*\n?.*Received:/i },
   { id: "test-summary-failed", cause: "test-suite", confidence: "high", test: /Tests?:\s*\d+ failed/i },
-  { id: "assertion-generic", cause: "test-suite", confidence: "medium", test: /AssertionError|assert\.\w+ failed|expected .* (?:to equal|to be)/i },
+  // Boundary guards matter: `test-http-pipeline-assertionerror-finish.js` is a
+  // FILENAME, not an error, and a naive /AssertionError/i matched it.
+  { id: "assertion-generic", cause: "test-suite", confidence: "medium", test: /(?<![\w-])AssertionError(?![\w-])|assert\.\w+ failed|expected .* (?:to equal|to be)/i },
   { id: "test-timeout", cause: "test-suite", confidence: "medium", test: /exceeded timeout of \d+\s*ms|test timed out after/i },
   { id: "unhandled-rejection", cause: "test-suite", confidence: "low", test: /UnhandledPromiseRejection|Unhandled rejection/i },
 ];
+
+/**
+ * Lines that report success. Matching a signature inside one of these is
+ * always a false positive — real logs interleave passing test names (which may
+ * contain words like "error" or "timeout") with the actual failure.
+ */
+const SUCCESS_LINE = /\.{3}\s*ok\b|^\s*(?:PASS|✓|✔)\b|\bok\s*\(\d+\s*m?s\)/i;
+
+/** Strip ANSI colour codes — real CI logs are full of them. */
+const ANSI = /\x1b\[[\d;]*m|\[\d{1,2}m/g;
 
 const REDACTIONS: [RegExp, string][] = [
   [/[\w.+-]+@[\w-]+\.[\w.-]+/g, "[email]"],
@@ -75,8 +87,12 @@ export function redact(line: string): string {
 export class CauseClassifier {
   #best: { signature: Signature; line: string } | null = null;
 
-  feed(line: string): void {
+  feed(raw: string): void {
     if (this.#best?.signature.confidence === "high") return; // already conclusive
+
+    const line = raw.replace(ANSI, "");
+    if (SUCCESS_LINE.test(line)) return; // a passing test line proves nothing
+
     for (const signature of SIGNATURES) {
       if (!signature.test.test(line)) continue;
       const better =
@@ -108,9 +124,13 @@ function rank(confidence: CauseVerdict["confidence"]): number {
  */
 export function causeFromFailingStep(stepName: string | null): CauseVerdict | null {
   if (!stepName) return null;
-  const infraSteps = /^(set up job|checkout|install|setup|post |upload |download )/i;
+  // Match anywhere, not just at the start: real steps are named things like
+  // "Pre-install rustup 1.28.2" and "Restore cargo cache", which a prefix-only
+  // test wrongly attributed to the test suite.
+  const infraStep =
+    /\b(set up|setup|checkout|clone|install|provision|restore|cache|upload|download|artifact|docker|login|configure|bootstrap|toolchain|dependenc)/i;
   return {
-    cause: infraSteps.test(stepName) ? "infrastructure" : "test-suite",
+    cause: infraStep.test(stepName) ? "infrastructure" : "test-suite",
     patternId: "step-heuristic",
     confidence: "low",
     excerpt: `failing step: ${redact(stepName)}`,

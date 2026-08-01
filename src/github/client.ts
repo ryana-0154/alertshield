@@ -95,9 +95,16 @@ export class GitHubClient {
     }
   }
 
-  /** Follow Link-header pagination to exhaustion, yielding each page's items. */
-  async #paginate<T>(path: string, key: string, perPage = 100): Promise<T[]> {
-    let url: string | null = `${this.#baseUrl}${path}${path.includes("?") ? "&" : "?"}per_page=${perPage}`;
+  /**
+   * Follow Link-header pagination, optionally stopping early.
+   *
+   * `maxItems` is not optional in practice: large repos report 40,000 workflow
+   * runs, which is 400 requests against a 5,000/hour budget. Callers that do
+   * not cap this will exhaust the rate limit on a single repository.
+   */
+  async #paginate<T>(path: string, key: string, maxItems = Infinity, perPage = 100): Promise<T[]> {
+    const size = Math.min(perPage, maxItems === Infinity ? perPage : Math.max(maxItems, 1));
+    let url: string | null = `${this.#baseUrl}${path}${path.includes("?") ? "&" : "?"}per_page=${size}`;
     const out: T[] = [];
 
     while (url) {
@@ -106,6 +113,7 @@ export class GitHubClient {
 
       const body = (await res.json()) as Record<string, unknown>;
       out.push(...((body[key] ?? []) as T[]));
+      if (out.length >= maxItems) return out.slice(0, maxItems);
 
       // `<url>; rel="next"` — the only reliable pagination signal GitHub gives.
       const link = res.headers.get("link");
@@ -116,8 +124,12 @@ export class GitHubClient {
     return out;
   }
 
-  listWorkflowRuns(owner: string, repo: string): Promise<WorkflowRun[]> {
-    return this.#paginate<WorkflowRun>(`/repos/${owner}/${repo}/actions/runs`, "workflow_runs");
+  listWorkflowRuns(owner: string, repo: string, maxRuns?: number): Promise<WorkflowRun[]> {
+    return this.#paginate<WorkflowRun>(
+      `/repos/${owner}/${repo}/actions/runs`,
+      "workflow_runs",
+      maxRuns,
+    );
   }
 
   /** Jobs for one specific attempt. Never use the default endpoint for flake work. */

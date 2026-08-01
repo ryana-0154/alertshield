@@ -40,9 +40,10 @@ Deliberately narrow, and staying that way until it works.
 
 ## Roadmap
 
-**1 — Offline analyzer** *(first build)*
+**1 — Offline analyzer** *(in progress)*
+- [x] Detection engine: attempt comparison at the same SHA, log-based cause attribution, wasted-minute ranking
+- [x] Local test harness with synthetic fixtures and a mock GitHub API — see [`tools/`](./tools/README.md)
 - [ ] Pull run/job history for ~100 well-known public repos — no auth beyond a token, no customers required
-- [ ] Detect confirmed flakes; rank by wasted minutes
 - [ ] Publish the findings as a public CI-flakiness benchmark
 
 This validates the detection algorithm against real, messy data and tests whether flakes are common enough to sustain a business — before any product exists. It doubles as launch content.
@@ -62,6 +63,23 @@ This validates the detection algorithm against real, messy data and tests whethe
 
 Free for public repos. Paid tiers around **$49 / $149 / $399 per month**, scaling on *active repos* — those with at least one workflow run in the trailing 30 days. Dormant and archived repos cost nothing, so org-wide installs carry no penalty.
 
+## Running it
+
+Requires Node ≥22.18 (TypeScript runs natively — no build step) and **pnpm**. The analyzer has zero runtime dependencies.
+
+```bash
+pnpm fixtures                                   # generate synthetic test data
+pnpm mock-github &                              # fake GitHub on :8787
+GITHUB_API_BASE_URL=http://localhost:8787 pnpm analyze
+pnpm test                                       # assert against ground truth
+```
+
+Against real GitHub — public repos need no token scopes:
+
+```bash
+GITHUB_TOKEN=… pnpm analyze facebook/react --days 30
+```
+
 ## Repo layout
 
 ```
@@ -70,6 +88,12 @@ Free for public repos. Paid tiers around **$49 / $149 / $399 per month**, scalin
 ├── CONTEXT.md             # Domain glossary; the words this project uses
 ├── OVERVIEW.md            # Original product brief (superseded in scope)
 ├── CLAUDE.md              # Project instructions for Claude Code
+├── src/
+│   ├── github/            # API client: pagination, attempts, log streaming
+│   ├── detect/            # Flake detection and cause attribution
+│   └── report.ts          # Ranking and rendering
+├── tests/                 # Asserted against fixture ground truth
+├── tools/                 # Local test harness (fixtures + mock API)
 └── docs/
     ├── adr/               # Architectural decisions and why
     └── agents/            # Agent tooling configuration

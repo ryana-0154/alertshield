@@ -9,6 +9,8 @@
     "pnpm": ">=11"
   },
   "scripts": {
+    "analyze": "node src/cli.ts",
+    "test": "node --test 'tests/**/*.test.ts'",
     "fixtures": "node tools/fixtures/generate.ts",
     "mock-github": "node tools/mock-github/server.ts",
     "db:up": "./scripts/db.sh up",

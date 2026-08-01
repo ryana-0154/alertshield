@@ -2,6 +2,10 @@
 
 CI/CD pipeline intelligence & cost optimizer. See `OVERVIEW.md` for the product brief.
 
+## Toolchain
+
+Use **pnpm**, never npm. `pnpm install`, `pnpm <script>`, `pnpm dlx` (not `npx`).
+
 ## Agent skills
 
 ### Issue tracker

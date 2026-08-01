@@ -7,13 +7,15 @@ Everything here is development tooling. None of it ships.
 ## Quick start
 
 ```bash
-npm run fixtures       # generate synthetic data + ground truth
-npm run mock-github    # serve it on http://localhost:8787
-npm run db:up          # Postgres on localhost:5433
+pnpm fixtures       # generate synthetic data + ground truth
+pnpm mock-github    # serve it on http://localhost:8787
+pnpm db:up          # Postgres on localhost:5433
 cp .env.example .env
 ```
 
-No `npm install` needed — the harness has **zero dependencies** and runs on Node's native TypeScript support (Node ≥22.18; you're on 24).
+No `pnpm install` needed — the harness has **zero dependencies** and runs on Node's native TypeScript support (Node ≥22.18; you're on 24).
+
+This project uses **pnpm**, not npm.
 
 ## What gets generated
 
@@ -111,4 +113,4 @@ GET /_logs/:job_id          log redirect target
 
 ## Adding scenarios
 
-Edit `tools/fixtures/scenarios.ts` and re-run `npm run fixtures`. Everything — runs, jobs, steps, logs, ground truth — is derived from that file. The four pattern kinds are `confirmed-flake`, `genuine-failure`, `suspected-flake`, and `healed-flake`; see the comments there for what each proves.
+Edit `tools/fixtures/scenarios.ts` and re-run `pnpm fixtures`. Everything — runs, jobs, steps, logs, ground truth — is derived from that file. The four pattern kinds are `confirmed-flake`, `genuine-failure`, `suspected-flake`, and `healed-flake`; see the comments there for what each proves.

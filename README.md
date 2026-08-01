@@ -40,19 +40,20 @@ Deliberately narrow, and staying that way until it works.
 
 ## Roadmap
 
-**1 — Offline analyzer** *(in progress)*
-- [x] Detection engine: attempt comparison at the same SHA, log-based cause attribution, wasted-minute ranking
+**1 — Offline analyzer** *(largely done)*
+- [x] Detection engine: same-SHA proof, log-based cause attribution, wasted-minute ranking
 - [x] Local test harness with synthetic fixtures and a mock GitHub API — see [`tools/`](./tools/README.md)
-- [ ] Pull run/job history for ~100 well-known public repos — no auth beyond a token, no customers required
-- [ ] Publish the findings as a public CI-flakiness benchmark
+- [x] Validated against real repos, which found and fixed several false positives
+- [x] Postgres persistence and a report page
+- [ ] Scale the survey to ~100 repos and publish it as a public CI-flakiness benchmark
 
-This validates the detection algorithm against real, messy data and tests whether flakes are common enough to sustain a business — before any product exists. It doubles as launch content.
+This validated the algorithm against real, messy data — and surfaced the finding in [ADR-0005](./docs/adr/0005-broaden-the-evidence-base-for-confirmed-flakes.md) that reruns are far rarer than assumed, which reshaped the detector.
 
 **2 — Product**
-- [ ] GitHub App: install, backfill, webhook ingestion
-- [ ] Log-streaming classifier for flake causes
-- [ ] The report page
+- [ ] GitHub App: install and webhook ingestion *(needs an App registered on GitHub)*
+- [ ] Scheduled re-ingestion
 - [ ] Billing
+- [ ] Slack digest — the retention mechanism a dashboard alone won't provide
 
 **3 — Retention & depth**
 - [ ] Slack digest
@@ -65,19 +66,32 @@ Free for public repos. Paid tiers around **$49 / $149 / $399 per month**, scalin
 
 ## Running it
 
-Requires Node ≥22.18 (TypeScript runs natively — no build step) and **pnpm**. The analyzer has zero runtime dependencies.
+Requires Node ≥22.18 (TypeScript runs natively — no build step), **pnpm**, and podman or docker for Postgres.
 
 ```bash
-pnpm fixtures                                   # generate synthetic test data
-pnpm mock-github &                              # fake GitHub on :8787
-GITHUB_API_BASE_URL=http://localhost:8787 pnpm analyze
-pnpm test                                       # assert against ground truth
+pnpm install
+pnpm db:up                                      # Postgres on :5433
+cp .env.example .env
+
+GITHUB_TOKEN=$(gh auth token) pnpm ingest vitejs/vite --max-runs 300
+pnpm web                                        # report page on :3000
 ```
 
-Against real GitHub — public repos need no token scopes:
+Public repos need no token scopes. `--max-runs` matters: large repos report 40,000 workflow runs, and uncapped pagination will exhaust the hourly rate limit on a single repository.
+
+Without a database, print straight to the terminal:
 
 ```bash
-GITHUB_TOKEN=… pnpm analyze facebook/react --days 30
+GITHUB_TOKEN=$(gh auth token) pnpm analyze ClickHouse/ClickHouse --days 30
+```
+
+Develop against synthetic data instead of live GitHub:
+
+```bash
+pnpm fixtures && pnpm mock-github &
+GITHUB_API_BASE_URL=http://localhost:8787 pnpm analyze
+pnpm test                                       # 23 tests, no DB needed
+DATABASE_URL=… pnpm test                        # 30, including persistence
 ```
 
 ## Repo layout

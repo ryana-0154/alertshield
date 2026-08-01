@@ -16,6 +16,15 @@
     "db:up": "./scripts/db.sh up",
     "db:down": "./scripts/db.sh down",
     "db:psql": "./scripts/db.sh psql",
-    "db:reset": "./scripts/db.sh reset"
+    "db:reset": "./scripts/db.sh reset",
+    "ingest": "node src/ingest.ts",
+    "web": "node src/web/server.ts",
+    "migrate": "node -e \"import('./src/db/index.ts').then(async m=>{const r=await m.migrate();console.log(r.length?'Applied: '+r.join(', '):'Up to date');await m.closePool()})\""
+  },
+  "dependencies": {
+    "pg": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.20.0"
   }
 }

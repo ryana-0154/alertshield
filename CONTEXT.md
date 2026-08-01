@@ -1,6 +1,6 @@
 # AlertShield
 
-Detects flaky CI failures in GitHub Actions and reports what they cost. This glossary fixes the language the project uses; it holds no implementation detail.
+Measures provably wasted CI time in GitHub Actions and reports what it cost. This glossary fixes the language the project uses; it holds no implementation detail.
 
 ## Language
 
@@ -35,10 +35,24 @@ _Avoid_: task, stage
 One numbered try of a Workflow Run. A rerun creates a new attempt against the same commit, which is the primary evidence for a Confirmed Flake.
 _Avoid_: retry, rerun (these name the human action, not the record)
 
+### Waste
+
+**Wasted Time**:
+Runner time whose result was discarded or ignored. The umbrella the report ranks by, covering Confirmed Flakes, Cancelled Work, and Broken Windows.
+_Avoid_: inefficiency, overhead
+
+**Cancelled Work**:
+Runner time consumed by a run that was stopped before finishing, so its result was never used. Often correct behaviour — superseding an in-flight run is good practice — so it is named as thrown-away compute, never as a mistake.
+_Avoid_: aborted, killed, superseded
+
+**Broken Window**:
+A job that has failed for many consecutive runs. Nobody is acting on the result, so each further execution spends time without informing a decision.
+_Avoid_: always-failing, permared, chronic failure
+
 ### Value and billing
 
 **Wasted Minutes**:
-Runner time consumed by Run Attempts that failed due to a Confirmed Flake. The headline figure findings are ranked by, and exactly measurable.
+The unit Wasted Time is reported in, measured from job start and finish timestamps. Findings are ranked by it because it is exact, unlike derived cost.
 _Avoid_: waste, lost time, burned minutes
 
 **Active Repo**:

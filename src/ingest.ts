@@ -95,7 +95,8 @@ async function main(): Promise<void> {
       });
       console.error(
         `  ${fullName.padEnd(34)} ${String(result.runsAnalysed).padStart(5)} runs → ` +
-          `${result.confirmed.length} confirmed, ${result.suspected.length} suspected`,
+          `${result.confirmed.length} confirmed, ${result.waste.length} waste, ` +
+          `${result.suspected.length} suspected`,
       );
     } catch (error) {
       failures += 1;

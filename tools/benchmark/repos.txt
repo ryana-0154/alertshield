@@ -1,0 +1,126 @@
+# Benchmark corpus: 100 large, actively-maintained public repositories.
+#
+# Chosen for breadth across ecosystems and CI styles, not for having flakes —
+# picking repos known to be flaky would make the headline number meaningless.
+# All are public, so no permission beyond an unscoped token is needed.
+
+# --- JavaScript / TypeScript -------------------------------------------------
+vercel/next.js
+facebook/react
+microsoft/TypeScript
+nodejs/node
+denoland/deno
+vitejs/vite
+withastro/astro
+sveltejs/svelte
+vuejs/core
+angular/angular
+webpack/webpack
+babel/babel
+storybookjs/storybook
+nestjs/nest
+remix-run/react-router
+expressjs/express
+prettier/prettier
+eslint/eslint
+jestjs/jest
+pnpm/pnpm
+oven-sh/bun
+tailwindlabs/tailwindcss
+electron/electron
+nuxt/nuxt
+solidjs/solid
+
+# --- Go ----------------------------------------------------------------------
+golang/go
+kubernetes/kubernetes
+prometheus/prometheus
+grafana/grafana
+hashicorp/terraform
+etcd-io/etcd
+cilium/cilium
+containerd/containerd
+argoproj/argo-cd
+helm/helm
+istio/istio
+gohugoio/hugo
+traefik/traefik
+minio/minio
+rclone/rclone
+
+# --- Rust --------------------------------------------------------------------
+rust-lang/rust
+tokio-rs/tokio
+rust-lang/cargo
+BurntSushi/ripgrep
+sharkdp/bat
+starship/starship
+rust-lang/rust-analyzer
+serde-rs/serde
+clap-rs/clap
+alacritty/alacritty
+
+# --- Python ------------------------------------------------------------------
+pandas-dev/pandas
+numpy/numpy
+scipy/scipy
+scikit-learn/scikit-learn
+apache/airflow
+pytorch/pytorch
+huggingface/transformers
+pola-rs/polars
+psf/black
+pallets/flask
+django/django
+encode/django-rest-framework
+tiangolo/fastapi
+psf/requests
+pytest-dev/pytest
+ansible/ansible
+celery/celery
+sqlalchemy/sqlalchemy
+
+# --- JVM ---------------------------------------------------------------------
+spring-projects/spring-boot
+apache/kafka
+elastic/elasticsearch
+apache/lucene
+netty/netty
+google/guava
+JetBrains/kotlin
+gradle/gradle
+apache/flink
+
+# --- C / C++ / systems -------------------------------------------------------
+redis/redis
+grpc/grpc
+envoyproxy/envoy
+openssl/openssl
+ClickHouse/ClickHouse
+cockroachdb/cockroach
+apache/arrow
+protocolbuffers/protobuf
+opencv/opencv
+duckdb/duckdb
+
+# --- Ruby / PHP / other ------------------------------------------------------
+rails/rails
+laravel/framework
+symfony/symfony
+composer/composer
+jekyll/jekyll
+fastlane/fastlane
+Homebrew/brew
+discourse/discourse
+php/php-src
+ruby/ruby
+
+# --- Infra / tooling ---------------------------------------------------------
+docker/compose
+moby/moby
+ollama/ollama
+supabase/supabase
+n8n-io/n8n
+appwrite/appwrite
+netdata/netdata
+caddyserver/caddy

@@ -19,7 +19,8 @@
     "db:reset": "./scripts/db.sh reset",
     "ingest": "node src/ingest.ts",
     "web": "node src/web/server.ts",
-    "migrate": "node -e \"import('./src/db/index.ts').then(async m=>{const r=await m.migrate();console.log(r.length?'Applied: '+r.join(', '):'Up to date');await m.closePool()})\""
+    "migrate": "node -e \"import('./src/db/index.ts').then(async m=>{const r=await m.migrate();console.log(r.length?'Applied: '+r.join(', '):'Up to date');await m.closePool()})\"",
+    "benchmark": "node tools/benchmark/generate-report.ts"
   },
   "dependencies": {
     "pg": "^8.22.0"

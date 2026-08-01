@@ -71,6 +71,15 @@ const { rows: kindRows } = await db.query(`
     from waste_findings group by 1 order by 3 desc
 `);
 
+const { rows: timeoutRows } = await db.query(`
+  select r.full_name, w.job, w.occurrences, w.wasted_seconds
+    from waste_findings w join repos r on r.id = w.repo_id
+   where w.kind = 'cancelled'
+     and w.occurrences > 0
+     and (w.wasted_seconds / w.occurrences) >= 21600
+   order by w.wasted_seconds desc
+`);
+
 const totalRepos = repoStats.length;
 const totalRuns = repoStats.reduce((n, r) => n + Number(r.runs_analysed), 0);
 const flakeSeconds = repoStats.reduce((n, r) => n + Number(r.flake_seconds), 0);
@@ -85,6 +94,9 @@ const withNothing = repoStats.filter(
 ).length;
 
 const pct = (n: number) => `${Math.round((n / totalRepos) * 100)}%`;
+const topRepoSeconds = Math.max(
+  ...repoStats.map((r) => Number(r.flake_seconds) + Number(r.waste_seconds)),
+);
 const linuxCost = (seconds: number) => `$${((seconds / 60) * RATE_PER_MINUTE["hosted"]!).toFixed(0)}`;
 
 const kindLabel: Record<string, string> = {
@@ -127,10 +139,11 @@ would inflate the number dishonestly.
 | Repos with at least one proven finding | ${withEither} of ${totalRepos} (${pct(withEither)}) |
 | Repos with nothing detectable at all | ${withNothing} (${pct(withNothing)}) |
 
-At GitHub's published Linux runner rate that is roughly **${linuxCost(totalSeconds)}** of
-compute — small in absolute terms because open-source runs free, but these are
-sample windows of a few hundred runs each. A private repo paying for the same
-pattern, extrapolated across a year, is the number that matters to a finance team.
+Priced at GitHub's **Linux** rate that is about ${linuxCost(totalSeconds)} — and that is a floor,
+not an estimate: much of this ran on Windows and macOS runners, which bill at
+2x and 10x Linux. Open-source repositories run free, so nobody paid it. The
+figure matters because a private repository with the same pattern does pay,
+every month.
 
 ## The finding that surprised us
 
@@ -162,9 +175,16 @@ Among confirmed flakes, attributed cause:
 | --- | --- | --- |
 ${causeRows.map((r) => `| ${r.cause} | ${r.n} | ${minutes(Number(r.seconds))} |`).join("\n")}
 
-Infrastructure failures — dead runners, DNS, registry timeouts, cache misses —
-are a large share. They are not anybody's flaky test, and no amount of test
-hygiene fixes them.
+${(() => {
+  const infra = causeRows.find((r) => r.cause === "infrastructure");
+  const test = causeRows.find((r) => r.cause === "test-suite");
+  const infraSec = Number(infra?.seconds ?? 0);
+  const testSec = Number(test?.seconds ?? 0);
+  const share = flakeSeconds > 0 ? Math.round((infraSec / flakeSeconds) * 100) : 0;
+  return share >= 30
+    ? `Infrastructure failures — dead runners, DNS, registry timeouts, cache misses — account for ${share}% of confirmed-flake time. No amount of test hygiene fixes those.`
+    : `Contrary to what we expected, infrastructure failures are the *minority*: ${share}% of confirmed-flake time against ${Math.round((testSec / flakeSeconds) * 100)}% from the test suites themselves. Where a flake can be proven, it is usually genuinely nondeterministic test code rather than a bad runner.`;
+})()}
 
 ## The 15 largest single findings
 
@@ -199,6 +219,20 @@ ${repoStats
       `| \`${r.full_name}\` | ${r.runs_analysed} | ${r.flakes} | ${r.waste} | ${minutes(Number(r.flake_seconds) + Number(r.waste_seconds))} |`,
   )
   .join("\n")}
+
+## Concentration, and one outlier worth naming
+
+Averages would mislead here. Waste is not spread evenly:
+
+- **\`${(repoStats[0] as { full_name: string }).full_name}\` alone accounts for ${Math.round((topRepoSeconds / totalSeconds) * 100)}% of everything measured.** A handful of repositories carry most of the total, and the median repository is far quieter than the mean implies.
+${
+  timeoutRows.length > 0
+    ? `- **${timeoutRows.length} finding${timeoutRows.length === 1 ? "" : "s"} hit a job timeout wall rather than an ordinary cancellation.** The largest, \`${timeoutRows[0]!.full_name}\`'s \`${timeoutRows[0]!.job}\`, burned ${minutes(Number(timeoutRows[0]!.wasted_seconds) / Number(timeoutRows[0]!.occurrences))} on each of ${timeoutRows[0]!.occurrences} occurrences — jobs that hung until GitHub killed them. That is a different failure from a superseded run, and it is ${Math.round((Number(timeoutRows[0]!.wasted_seconds) / totalSeconds) * 100)}% of our headline number on its own.`
+    : ""
+}
+
+Neither invalidates the finding, but any single number drawn from this sample
+should be read with them in mind.
 
 ## Methodology, and what this does not show
 

@@ -134,8 +134,9 @@ describe("persistence", { skip: !HAS_DB && "DATABASE_URL not set" }, () => {
         },
       ]),
     );
-    const suspected = await loadSuspected();
-    const mine = suspected.filter((s) => s.repo === TEST_REPO);
+    // Scope the query: an unscoped call is capped globally and would drop this
+    // row once enough real repositories are ingested.
+    const mine = await loadSuspected(TEST_REPO);
     assert.equal(mine.length, 1);
     assert.equal(mine[0]?.failures, 7);
   });

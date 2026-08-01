@@ -281,13 +281,22 @@ export async function loadGroups(sinceDays: number | null, minWastedSeconds = 60
   }));
 }
 
-export async function loadSuspected(): Promise<StoredSuspected[]> {
+/**
+ * Suspected findings, optionally scoped to one repository.
+ *
+ * The repo filter is not a convenience: without it the global `limit` silently
+ * drops a small repo's findings once enough repositories are ingested, which
+ * would make a per-repo view wrong rather than merely incomplete.
+ */
+export async function loadSuspected(repo?: string, limit = 100): Promise<StoredSuspected[]> {
   const { rows } = await getPool().query(
     `select r.full_name as repo, s.workflow, s.job, s.failures, s.total_runs, s.failure_rate
        from suspected_flakes s
        join repos r on r.id = s.repo_id
+      where ($1::text is null or r.full_name = $1)
       order by s.failures desc
-      limit 100`,
+      limit $2`,
+    [repo ?? null, limit],
   );
   return rows.map((row) => ({
     repo: row.repo,

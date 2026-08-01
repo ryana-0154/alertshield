@@ -1,0 +1,10 @@
+node_modules/
+.env
+.env.local
+
+# Generated fixture data — regenerate with `npm run fixtures`
+tools/fixtures/data/
+
+# Never commit CI logs, real or synthetic (see ADR-0003)
+*.log
+logs/

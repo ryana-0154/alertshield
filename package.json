@@ -1,0 +1,17 @@
+{
+  "name": "alertshield",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "fixtures": "node tools/fixtures/generate.ts",
+    "mock-github": "node tools/mock-github/server.ts",
+    "db:up": "./scripts/db.sh up",
+    "db:down": "./scripts/db.sh down",
+    "db:psql": "./scripts/db.sh psql",
+    "db:reset": "./scripts/db.sh reset"
+  }
+}
